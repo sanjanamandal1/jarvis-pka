@@ -1,24 +1,15 @@
 """
 Personal Knowledge Base — manages FAISS index with rich chunk metadata.
-
-Supports:
-- Ingesting chunks from multiple documents
-- Hybrid retrieval: semantic similarity + keyword boosting
-- Filtering by doc_id, date range, or version
-- Persisting the index across sessions
 """
 
 from __future__ import annotations
 
 import json
-import os
-import pickle
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 import numpy as np
 
 from langchain_community.vectorstores import FAISS
-from src.llm_provider import get_embeddings as _provider_embeddings
 from langchain_core.documents import Document
 
 from .semantic_chunker import SemanticChunk
@@ -28,26 +19,19 @@ INDEX_DIR = Path(".pka_data/faiss_index")
 
 
 def _get_embeddings():
-    return _provider_embeddings()
+    """Always get fresh embeddings from current provider — called lazily."""
+    from src.llm_provider import get_embeddings
+    return get_embeddings()
 
 
 class KnowledgeBase:
-    """
-    Manages the FAISS vector index with full metadata tracking.
-
-    Each stored document has metadata:
-        doc_id, doc_version, filename, chunk_id,
-        source_file, token_count, uploaded_at
-    """
-
     def __init__(self):
         self._vectorstore: Optional[FAISS] = None
-        self._chunk_meta: Dict[str, dict] = {}   # chunk_id → metadata
-        self._embeddings = _get_embeddings()
+        self._chunk_meta: Dict[str, dict] = {}
+        # NOTE: do NOT init embeddings here — provider may not be set yet
         INDEX_DIR.mkdir(parents=True, exist_ok=True)
-        self._load()
 
-    # ── Public API ───────────────────────────────────────────────────────────
+    # ── Public API ────────────────────────────────────────────────────────────
 
     def add_document(
         self,
@@ -58,9 +42,9 @@ class KnowledgeBase:
         uploaded_at: str,
     ):
         """Add (or replace) a document in the knowledge base."""
-        # Remove old chunks for this doc_id
         self._remove_doc(doc_id)
 
+        embeddings = _get_embeddings()  # lazy — uses current provider
         docs = []
         for chunk in chunks:
             meta = {
@@ -79,7 +63,7 @@ class KnowledgeBase:
             docs.append(Document(page_content=chunk.text, metadata=meta))
 
         if self._vectorstore is None:
-            self._vectorstore = FAISS.from_documents(docs, self._embeddings)
+            self._vectorstore = FAISS.from_documents(docs, embeddings)
         else:
             self._vectorstore.add_documents(docs)
 
@@ -96,12 +80,10 @@ class KnowledgeBase:
         doc_ids: Optional[List[str]] = None,
         min_score: float = 0.0,
     ) -> List[Tuple[Document, float]]:
-        """Semantic search with optional doc_id filtering and score threshold."""
         if self._vectorstore is None:
             return []
 
         results = self._vectorstore.similarity_search_with_relevance_scores(query, k=k * 3)
-
         filtered = []
         for doc, score in results:
             if score < min_score:
@@ -110,12 +92,10 @@ class KnowledgeBase:
                 continue
             filtered.append((doc, score))
 
-        # Sort by score, take top-k
         filtered.sort(key=lambda x: x[1], reverse=True)
         return filtered[:k]
 
     def get_retriever(self, k: int = 6, doc_ids: Optional[List[str]] = None):
-        """Return a LangChain-compatible retriever."""
         if self._vectorstore is None:
             return None
 
@@ -140,7 +120,7 @@ class KnowledgeBase:
     def is_empty(self) -> bool:
         return self._vectorstore is None or len(self._chunk_meta) == 0
 
-    # ── Persistence ──────────────────────────────────────────────────────────
+    # ── Persistence ───────────────────────────────────────────────────────────
 
     def _save(self):
         if self._vectorstore:
@@ -148,7 +128,8 @@ class KnowledgeBase:
         meta_path = INDEX_DIR / "chunk_meta.json"
         meta_path.write_text(json.dumps(self._chunk_meta, indent=2), encoding="utf-8")
 
-    def _load(self):
+    def load(self):
+        """Call this AFTER provider is configured to load persisted index."""
         meta_path = INDEX_DIR / "chunk_meta.json"
         if meta_path.exists():
             try:
@@ -159,18 +140,16 @@ class KnowledgeBase:
         index_file = INDEX_DIR / "index.faiss"
         if index_file.exists():
             try:
+                embeddings = _get_embeddings()
                 self._vectorstore = FAISS.load_local(
-                    str(INDEX_DIR), self._embeddings, allow_dangerous_deserialization=True
+                    str(INDEX_DIR), embeddings,
+                    allow_dangerous_deserialization=True
                 )
             except Exception:
                 self._vectorstore = None
 
     def _remove_doc(self, doc_id: str):
-        """Remove all chunks belonging to doc_id from metadata (index rebuild would be needed for full removal)."""
         self._chunk_meta = {
             cid: meta for cid, meta in self._chunk_meta.items()
             if meta.get("doc_id") != doc_id
         }
-        # Note: FAISS doesn't support per-vector deletion without full rebuild.
-        # For production, use a database-backed vector store (Pinecone, Qdrant, etc.)
-        # Here we mark as removed in metadata and filter at query time.
