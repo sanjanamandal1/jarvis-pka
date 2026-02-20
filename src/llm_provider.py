@@ -1,6 +1,6 @@
 """
 LLM Provider Factory.
-Gemini: uses google-generativeai SDK directly (bypasses langchain-google-genai).
+Gemini: uses google-generativeai SDK directly.
 OpenAI: uses langchain-openai.
 Embeddings: always local HuggingFace (free, no quota).
 """
@@ -31,7 +31,7 @@ def get_provider() -> Provider:
 def get_llm(model: str = None, temperature: float = 0, streaming: bool = False):
     if _provider == "gemini":
         return _GeminiDirectLLM(
-            model=model or "gemini-1.5-flash",
+            model=model or "gemini-2.5-flash",
             temperature=temperature,
             api_key=_api_key or os.environ.get("GOOGLE_API_KEY", ""),
         )
@@ -53,8 +53,9 @@ def get_embeddings():
     )
 
 
+# gemini-2.5-flash is the model available on free tier keys
 OPENAI_MODELS = ["gpt-3.5-turbo", "gpt-4o-mini", "gpt-4o"]
-GEMINI_MODELS = ["gemini-1.5-flash", "gemini-1.5-flash-8b"]
+GEMINI_MODELS = ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-2.0-flash-lite"]
 
 
 def available_models(provider: Provider) -> list:
@@ -67,7 +68,7 @@ class _Msg:
 
 
 class _GeminiDirectLLM:
-    """Direct Gemini API — no langchain-google-genai, no v1beta issues."""
+    """Direct Gemini API call — bypasses langchain-google-genai entirely."""
 
     def __init__(self, model: str, temperature: float, api_key: str):
         self.model_name = model
