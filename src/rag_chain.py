@@ -4,36 +4,98 @@ Context-aware RAG chain with temporal awareness.
 
 from __future__ import annotations
 
-from typing import List, Optional, Dict, Any
+from typing import List, Dict, Any
 from langchain_core.documents import Document
 from langchain_core.prompts import ChatPromptTemplate, SystemMessagePromptTemplate, HumanMessagePromptTemplate
-from langchain.chains import ConversationalRetrievalChain
-from langchain.memory import ConversationBufferWindowMemory
+from langchain_core.output_parsers import StrOutputParser
+from langchain_core.runnables import RunnablePassthrough
+from langchain_core.messages import HumanMessage, AIMessage
 from src.llm_provider import get_llm
 
 
-SYSTEM_TEMPLATE = """You are a Personal Knowledge Assistant with deep expertise in the user's uploaded documents.
+SYSTEM_TEMPLATE = """You are J.A.R.V.I.S., a Personal Knowledge Assistant with deep expertise in the user's uploaded documents.
 
 {temporal_context}
 
 {hierarchy_context}
 
 INSTRUCTIONS:
-- Answer ONLY from the provided context. If the answer is not there, say so clearly.
-- When referencing information, cite the source filename and approximate location.
-- If documents have multiple versions, prefer the latest unless the user asks otherwise.
+- Answer ONLY from the provided context below. If the answer is not in the context, say "I could not find that in your documents."
+- Cite the source filename when referencing specific facts.
+- If documents have multiple versions, prefer the latest.
 - Be concise but complete.
 
-Context from knowledge base:
+Context:
 {context}
-"""
 
-QUESTION_TEMPLATE = """Chat History:
+Chat History:
 {chat_history}
 
 Question: {question}
 
 Answer:"""
+
+
+def _format_docs(docs):
+    return "\n\n".join(
+        f"[Source: {d.metadata.get('filename','?')} | Chunk: {d.metadata.get('chunk_id','?')}]\n{d.page_content}"
+        for d in docs
+    )
+
+
+def _format_history(history: list) -> str:
+    lines = []
+    for msg in history[-6:]:  # last 3 exchanges
+        role = "Human" if msg["role"] == "user" else "Assistant"
+        lines.append(f"{role}: {msg['content'][:200]}")
+    return "\n".join(lines) if lines else "None"
+
+
+class SimpleRAGChain:
+    """
+    Simple RAG chain that works with any LangChain-compatible LLM.
+    Avoids ConversationalRetrievalChain which has version compatibility issues.
+    """
+
+    def __init__(self, retriever, model=None, temporal_context="", hierarchy_context="", memory_window=5):
+        self.retriever = retriever
+        self.temporal_context = temporal_context
+        self.hierarchy_context = hierarchy_context
+        self.memory_window = memory_window
+        self.llm = get_llm(model=model, temperature=0)
+        self.history = []
+
+    def __call__(self, inputs: dict) -> dict:
+        question = inputs["question"]
+        chat_history_str = _format_history(self.history)
+
+        # Retrieve relevant docs
+        try:
+            docs = self.retriever.get_relevant_documents(question)
+        except Exception:
+            docs = []
+
+        context = _format_docs(docs) if docs else "No relevant documents found."
+
+        prompt = SYSTEM_TEMPLATE.format(
+            temporal_context=self.temporal_context or "N/A",
+            hierarchy_context=self.hierarchy_context or "",
+            context=context,
+            chat_history=chat_history_str,
+            question=question,
+        )
+
+        response = self.llm.invoke([HumanMessage(content=prompt)])
+        answer = response.content if hasattr(response, "content") else str(response)
+
+        # Update history
+        self.history.append({"role": "user", "content": question})
+        self.history.append({"role": "assistant", "content": answer})
+
+        return {
+            "answer": answer,
+            "source_documents": docs,
+        }
 
 
 def build_rag_chain(
@@ -43,37 +105,13 @@ def build_rag_chain(
     hierarchy_context: str = "",
     memory_window: int = 5,
 ):
-    llm = get_llm(model=model, temperature=0, streaming=True)
-
-    memory = ConversationBufferWindowMemory(
-        k=memory_window,
-        memory_key="chat_history",
-        return_messages=True,
-        output_key="answer",
-    )
-
-    system_prompt = SystemMessagePromptTemplate.from_template(
-        SYSTEM_TEMPLATE.format(
-            temporal_context=temporal_context or "No temporal context available.",
-            hierarchy_context=hierarchy_context or "",
-            context="{context}",
-        )
-    )
-
-    qa_prompt = ChatPromptTemplate.from_messages([
-        system_prompt,
-        HumanMessagePromptTemplate.from_template(QUESTION_TEMPLATE),
-    ])
-
-    chain = ConversationalRetrievalChain.from_llm(
-        llm=llm,
+    return SimpleRAGChain(
         retriever=retriever,
-        memory=memory,
-        return_source_documents=True,
-        combine_docs_chain_kwargs={"prompt": qa_prompt},
-        verbose=False,
+        model=model,
+        temporal_context=temporal_context,
+        hierarchy_context=hierarchy_context,
+        memory_window=memory_window,
     )
-    return chain
 
 
 def format_sources(source_docs: List[Document]) -> List[Dict[str, Any]]:
