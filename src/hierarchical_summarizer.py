@@ -153,11 +153,17 @@ class HierarchicalSummarizer:
     # ── Internals ────────────────────────────────────────────────────────────
 
     def _summarize_chunks(self, chunks: List[SemanticChunk]) -> List[ChunkSummary]:
+        import time
         summaries = []
-        for chunk in chunks:
-            # truncate very long chunks before sending to LLM
+        for i, chunk in enumerate(chunks):
+            if i > 0:
+                time.sleep(13)  # stay under 5 req/min free tier limit
             text = textwrap.shorten(chunk.text, width=1500, placeholder=" …")
-            summary = self._call_llm(CHUNK_SUMMARY_PROMPT.format(text=text))
+            try:
+                summary = self._call_llm(CHUNK_SUMMARY_PROMPT.format(text=text))
+            except Exception:
+                time.sleep(30)  # back off on rate limit error
+                summary = self._call_llm(CHUNK_SUMMARY_PROMPT.format(text=text))
             summaries.append(ChunkSummary(
                 chunk_id=chunk.chunk_id,
                 summary=summary,
