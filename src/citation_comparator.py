@@ -91,7 +91,7 @@ class CitationHighlighter:
         )
 
         prompt = CITATION_PROMPT.format(answer=answer, sources=sources_text)
-        response = self._llm([HumanMessage(content=prompt)])
+        response = self._llm.invoke([HumanMessage(content=prompt)])
         raw = response.content.strip()
 
         return self._parse_response(raw, answer, source_docs)
@@ -190,7 +190,7 @@ class DocumentComparator:
             question=question,
             doc_sections="\n\n".join(doc_sections),
         )
-        response = self._llm([HumanMessage(content=prompt)])
+        response = self._llm.invoke([HumanMessage(content=prompt)])
         raw = response.content.strip()
 
         table = narrative = ""

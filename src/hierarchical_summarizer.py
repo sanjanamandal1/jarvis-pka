@@ -118,7 +118,7 @@ class HierarchicalSummarizer:
 
     def _call_llm(self, prompt: str) -> str:
         llm = self._get_llm()
-        response = llm([HumanMessage(content=prompt)])
+        response = llm.invoke([HumanMessage(content=prompt)])
         return response.content.strip()
 
     # ── Public API ───────────────────────────────────────────────────────────

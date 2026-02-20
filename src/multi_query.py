@@ -73,7 +73,7 @@ class MultiQueryFuser:
     def generate_queries(self, question: str) -> List[str]:
         """Generate N reformulations of the user question."""
         prompt = QUERY_GEN_PROMPT.format(n=self.n_queries, question=question)
-        response = self._llm([HumanMessage(content=prompt)])
+        response = self._llm.invoke([HumanMessage(content=prompt)])
         lines = [l.strip() for l in response.content.strip().split("\n") if l.strip()]
         return lines[: self.n_queries]
 
@@ -122,5 +122,5 @@ class MultiQueryFuser:
             context=context,
             question=question,
         )
-        response = self._fuse_llm([HumanMessage(content=prompt)])
+        response = self._fuse_llm.invoke([HumanMessage(content=prompt)])
         return response.content.strip(), docs, queries
