@@ -1,5 +1,6 @@
 """
 LLM Provider Factory — supports OpenAI and Google Gemini.
+Embeddings always use local sentence-transformers (free, no API needed).
 """
 
 from __future__ import annotations
@@ -36,19 +37,25 @@ def get_llm(model: str = None, temperature: float = 0, streaming: bool = False):
     else:
         from langchain_openai import ChatOpenAI
         model = model or "gpt-3.5-turbo"
-        return ChatOpenAI(model_name=model, temperature=temperature, streaming=streaming)
+        return ChatOpenAI(
+            model_name=model,
+            temperature=temperature,
+            streaming=streaming,
+        )
 
 
 def get_embeddings():
-    if _provider == "gemini":
-        from langchain_google_genai import GoogleGenerativeAIEmbeddings
-        return GoogleGenerativeAIEmbeddings(
-            model="models/text-embedding-004",
-            google_api_key=os.environ.get("GOOGLE_API_KEY", ""),
-        )
-    else:
-        from langchain_openai import OpenAIEmbeddings
-        return OpenAIEmbeddings(model="text-embedding-3-small")
+    """
+    Always use local sentence-transformers for embeddings.
+    This works with ANY provider (Gemini or OpenAI) and is completely free.
+    No API quota used for embeddings.
+    """
+    from langchain_community.embeddings import HuggingFaceEmbeddings
+    return HuggingFaceEmbeddings(
+        model_name="all-MiniLM-L6-v2",
+        model_kwargs={"device": "cpu"},
+        encode_kwargs={"normalize_embeddings": True},
+    )
 
 
 OPENAI_MODELS = ["gpt-3.5-turbo", "gpt-4o-mini", "gpt-4o"]
