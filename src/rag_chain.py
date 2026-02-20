@@ -18,7 +18,7 @@ from langchain.prompts import (
     SystemMessagePromptTemplate,
     HumanMessagePromptTemplate,
 )
-from langchain.schema import Document
+from langchain_core.documents import Document
 
 
 SYSTEM_TEMPLATE = """You are a Personal Knowledge Assistant with deep expertise in the user's uploaded documents.

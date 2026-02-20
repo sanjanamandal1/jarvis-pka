@@ -19,7 +19,7 @@ import numpy as np
 
 from langchain_community.vectorstores import FAISS
 from src.llm_provider import get_embeddings as _provider_embeddings
-from langchain.schema import Document
+from langchain_core.documents import Document
 
 from .semantic_chunker import SemanticChunk
 

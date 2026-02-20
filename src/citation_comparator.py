@@ -20,9 +20,9 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 from typing import List, Dict, Tuple, Optional
-from langchain.schema import Document
+from langchain_core.documents import Document
 from src.llm_provider import get_llm as _get_llm_provider
-from langchain.schema import HumanMessage
+from langchain_core.messages import HumanMessage
 
 
 # ── Citation structures ───────────────────────────────────────────────────────

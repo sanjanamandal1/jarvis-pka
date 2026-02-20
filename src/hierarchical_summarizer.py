@@ -18,7 +18,7 @@ import textwrap
 from dataclasses import dataclass, field
 from typing import List, Dict, Optional
 from src.llm_provider import get_llm as _get_llm_provider
-from langchain.schema import HumanMessage, SystemMessage
+from langchain_core.messages import HumanMessage, SystemMessage
 
 from .semantic_chunker import SemanticChunk
 

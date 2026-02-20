@@ -13,9 +13,9 @@ This dramatically improves recall for ambiguous or multi-faceted questions.
 from __future__ import annotations
 
 from typing import List, Set, Tuple
-from langchain.schema import Document
+from langchain_core.documents import Document
 from src.llm_provider import get_llm as _get_llm_provider
-from langchain.schema import HumanMessage, SystemMessage
+from langchain_core.messages import HumanMessage, SystemMessage
 
 
 QUERY_GEN_PROMPT = """You are an AI assistant helping improve document retrieval.
