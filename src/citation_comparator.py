@@ -181,7 +181,13 @@ class DocumentComparator:
         for doc_id in doc_ids:
             fname = doc_names.get(doc_id, doc_id)
             results = self.kb.search(question, k=k_per_doc, doc_ids=[doc_id])
-            chunks = [doc.page_content for doc, _ in results] if results and isinstance(results[0], tuple) else [d.page_content for d in results]
+            # Safely handle both (doc, score) tuples and plain docs
+            chunks = []
+            for item in results:
+                if isinstance(item, tuple) and len(item) == 2:
+                    chunks.append(item[0].page_content)
+                elif hasattr(item, "page_content"):
+                    chunks.append(item.page_content)
             per_doc_evidence[fname] = chunks
             joined = "\n---\n".join(chunks[:k_per_doc]) if chunks else "No relevant content found."
             doc_sections.append(f"=== {fname} ===\n{joined}")

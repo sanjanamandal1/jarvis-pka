@@ -1,6 +1,8 @@
 """
-LLM Provider Factory — calls Gemini directly via google-generativeai SDK.
-This bypasses langchain-google-genai version issues completely.
+LLM Provider Factory.
+Gemini: uses google-generativeai SDK directly (bypasses langchain-google-genai).
+OpenAI: uses langchain-openai.
+Embeddings: always local HuggingFace (free, no quota).
 """
 
 from __future__ import annotations
@@ -9,11 +11,13 @@ from typing import Literal
 
 Provider = Literal["openai", "gemini"]
 _provider: Provider = "openai"
+_api_key: str = ""
 
 
 def configure_provider(provider: Provider, api_key: str):
-    global _provider
+    global _provider, _api_key
     _provider = provider
+    _api_key = api_key
     if provider == "openai":
         os.environ["OPENAI_API_KEY"] = api_key
     elif provider == "gemini":
@@ -29,6 +33,7 @@ def get_llm(model: str = None, temperature: float = 0, streaming: bool = False):
         return _GeminiDirectLLM(
             model=model or "gemini-1.5-flash",
             temperature=temperature,
+            api_key=_api_key or os.environ.get("GOOGLE_API_KEY", ""),
         )
     else:
         from langchain_openai import ChatOpenAI
@@ -40,7 +45,6 @@ def get_llm(model: str = None, temperature: float = 0, streaming: bool = False):
 
 
 def get_embeddings():
-    """Local embeddings — free, no API quota."""
     from langchain_community.embeddings import HuggingFaceEmbeddings
     return HuggingFaceEmbeddings(
         model_name="all-MiniLM-L6-v2",
@@ -50,54 +54,42 @@ def get_embeddings():
 
 
 OPENAI_MODELS = ["gpt-3.5-turbo", "gpt-4o-mini", "gpt-4o"]
-GEMINI_MODELS = ["gemini-1.5-flash", "gemini-1.5-flash-8b", "gemini-1.5-pro"]
+GEMINI_MODELS = ["gemini-1.5-flash", "gemini-1.5-flash-8b"]
 
 
 def available_models(provider: Provider) -> list:
     return GEMINI_MODELS if provider == "gemini" else OPENAI_MODELS
 
 
-# ── Direct Gemini wrapper (no langchain-google-genai needed) ──────────────────
-
-class _GeminiMessage:
-    """Minimal message object mimicking langchain AIMessage."""
+class _Msg:
     def __init__(self, content: str):
         self.content = content
 
 
 class _GeminiDirectLLM:
-    """
-    Calls Gemini directly via google-generativeai SDK.
-    Implements .invoke() to match LangChain interface.
-    """
+    """Direct Gemini API — no langchain-google-genai, no v1beta issues."""
 
-    def __init__(self, model: str = "gemini-1.5-flash", temperature: float = 0):
-        self.model = model
+    def __init__(self, model: str, temperature: float, api_key: str):
+        self.model_name = model
         self.temperature = temperature
+        self.api_key = api_key
 
-    def invoke(self, messages, **kwargs) -> _GeminiMessage:
+    def _call(self, prompt: str) -> str:
         import google.generativeai as genai
-
-        api_key = os.environ.get("GOOGLE_API_KEY", "")
-        genai.configure(api_key=api_key)
-
-        # Convert messages to plain text prompt
-        prompt_parts = []
-        for msg in messages:
-            if hasattr(msg, "content"):
-                prompt_parts.append(msg.content)
-            elif isinstance(msg, str):
-                prompt_parts.append(msg)
-        prompt = "\n\n".join(prompt_parts)
-
-        model = genai.GenerativeModel(
-            model_name=self.model,
-            generation_config=genai.types.GenerationConfig(
-                temperature=self.temperature,
-            ),
+        genai.configure(api_key=self.api_key)
+        m = genai.GenerativeModel(
+            model_name=self.model_name,
+            generation_config={"temperature": self.temperature},
         )
-        response = model.generate_content(prompt)
-        return _GeminiMessage(content=response.text)
+        resp = m.generate_content(prompt)
+        return resp.text
 
-    def __call__(self, messages, **kwargs) -> _GeminiMessage:
+    def invoke(self, messages, **kwargs) -> _Msg:
+        prompt = "\n\n".join(
+            msg.content if hasattr(msg, "content") else str(msg)
+            for msg in messages
+        )
+        return _Msg(self._call(prompt))
+
+    def __call__(self, messages, **kwargs) -> _Msg:
         return self.invoke(messages, **kwargs)
