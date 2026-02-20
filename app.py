@@ -791,7 +791,7 @@ if process_btn:
 
         # Build hybrid retriever if needed
         if "Hybrid" in rag_mode and kb._vectorstore:
-            from langchain.schema import Document as LCDoc
+            from langchain_core.documents import Document as LCDoc
             all_lc_docs = []
             for chunk_id, meta in kb._chunk_meta.items():
                 # rebuild docs from metadata

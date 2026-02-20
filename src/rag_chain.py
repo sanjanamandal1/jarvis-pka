@@ -1,24 +1,15 @@
 """
 Context-aware RAG chain with temporal awareness.
-
-The system prompt is dynamically built to include:
-- Temporal context (document versions, upload dates, recent changes)
-- Hierarchical document summaries for better answer grounding
-- Source attribution with chunk IDs and filenames
 """
 
 from __future__ import annotations
 
 from typing import List, Optional, Dict, Any
-from langchain.chains import ConversationalRetrievalChain
-from src.llm_provider import get_llm
-from langchain.memory import ConversationBufferWindowMemory
-from langchain.prompts import (
-    ChatPromptTemplate,
-    SystemMessagePromptTemplate,
-    HumanMessagePromptTemplate,
-)
 from langchain_core.documents import Document
+from langchain_core.prompts import ChatPromptTemplate, SystemMessagePromptTemplate, HumanMessagePromptTemplate
+from langchain.chains import ConversationalRetrievalChain
+from langchain.memory import ConversationBufferWindowMemory
+from src.llm_provider import get_llm
 
 
 SYSTEM_TEMPLATE = """You are a Personal Knowledge Assistant with deep expertise in the user's uploaded documents.
@@ -27,12 +18,11 @@ SYSTEM_TEMPLATE = """You are a Personal Knowledge Assistant with deep expertise 
 
 {hierarchy_context}
 
-━━━ INSTRUCTIONS ━━━
-• Answer ONLY from the provided context. If the answer isn't there, say so clearly.
-• When referencing information, cite the source filename and approximate location.
-• If documents have multiple versions, prefer the latest unless the user asks about a specific version.
-• Highlight when information might be outdated based on document upload dates.
-• Be concise but complete. Use bullet points for lists, prose for explanations.
+INSTRUCTIONS:
+- Answer ONLY from the provided context. If the answer is not there, say so clearly.
+- When referencing information, cite the source filename and approximate location.
+- If documents have multiple versions, prefer the latest unless the user asks otherwise.
+- Be concise but complete.
 
 Context from knowledge base:
 {context}
@@ -48,22 +38,11 @@ Answer:"""
 
 def build_rag_chain(
     retriever,
-    model: str = "gpt-3.5-turbo",
+    model: str = None,
     temporal_context: str = "",
     hierarchy_context: str = "",
     memory_window: int = 5,
 ):
-    """
-    Build a conversational RAG chain with temporal and hierarchical context.
-
-    Parameters
-    ----------
-    retriever       : LangChain retriever from KnowledgeBase
-    model           : OpenAI model name
-    temporal_context: String from TemporalVersionManager.get_temporal_context()
-    hierarchy_context: String from DocumentSummary.get_context_for_query()
-    memory_window   : How many past exchanges to keep in context
-    """
     llm = get_llm(model=model, temperature=0, streaming=True)
 
     memory = ConversationBufferWindowMemory(
@@ -98,7 +77,6 @@ def build_rag_chain(
 
 
 def format_sources(source_docs: List[Document]) -> List[Dict[str, Any]]:
-    """Format source documents for display in the UI."""
     seen = set()
     sources = []
     for doc in source_docs:
@@ -111,7 +89,7 @@ def format_sources(source_docs: List[Document]) -> List[Dict[str, Any]]:
             "chunk_id": doc.metadata.get("chunk_id", ""),
             "version": doc.metadata.get("doc_version", 1),
             "uploaded_at": doc.metadata.get("uploaded_at", ""),
-            "text_preview": doc.page_content[:280] + ("…" if len(doc.page_content) > 280 else ""),
+            "text_preview": doc.page_content[:280] + ("..." if len(doc.page_content) > 280 else ""),
             "token_count": doc.metadata.get("token_count", 0),
         })
     return sources
