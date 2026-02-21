@@ -73,24 +73,16 @@ class _GeminiRestLLM:
         self.api_key = api_key
 
     def _call(self, prompt: str) -> str:
-        import urllib.request
-        import json
+        import requests
 
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/{self.model_name}:generateContent?key={self.api_key}"
-        payload = json.dumps({
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{self.model_name}:generateContent"
+        payload = {
             "contents": [{"parts": [{"text": prompt}]}],
             "generationConfig": {"temperature": self.temperature}
-        }).encode("utf-8")
-
-        req = urllib.request.Request(
-            url,
-            data=payload,
-            headers={"Content-Type": "application/json"},
-            method="POST"
-        )
-        with urllib.request.urlopen(req, timeout=60) as resp:
-            data = json.loads(resp.read().decode("utf-8"))
-
+        }
+        resp = requests.post(url, json=payload, params={"key": self.api_key}, timeout=60)
+        resp.raise_for_status()
+        data = resp.json()
         return data["candidates"][0]["content"]["parts"][0]["text"]
 
     def invoke(self, messages, **kwargs) -> _Msg:
