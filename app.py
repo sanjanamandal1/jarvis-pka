@@ -679,7 +679,7 @@ with st.sidebar:
     )
 
     use_citations  = st.checkbox("Citation Highlighting", value=True)
-    build_summaries = st.checkbox("Hierarchical Summaries", value=True)
+    build_summaries = st.checkbox("Hierarchical Summaries", value=False)
 
     with st.expander("⚙ CHUNKING"):
         bp_pct   = st.slider("Breakpoint sensitivity", 70, 95, 85)
