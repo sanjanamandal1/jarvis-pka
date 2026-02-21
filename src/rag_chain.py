@@ -1,124 +1,70 @@
 """
-Context-aware RAG chain with temporal awareness.
+Simple, reliable RAG chain.
 """
-
 from __future__ import annotations
-
 from typing import List, Dict, Any
 from langchain_core.documents import Document
-from langchain_core.prompts import ChatPromptTemplate, SystemMessagePromptTemplate, HumanMessagePromptTemplate
-from langchain_core.output_parsers import StrOutputParser
-from langchain_core.runnables import RunnablePassthrough
-from langchain_core.messages import HumanMessage, AIMessage
+from langchain_core.messages import HumanMessage
 from src.llm_provider import get_llm
 
+PROMPT = """You are J.A.R.V.I.S., a helpful document assistant. Use the context below to answer the question.
 
-SYSTEM_TEMPLATE = """You are J.A.R.V.I.S., a Personal Knowledge Assistant with deep expertise in the user's uploaded documents.
-
-{temporal_context}
-
-{hierarchy_context}
-
-INSTRUCTIONS:
-- Answer ONLY from the provided context below. If the answer is not in the context, say "I could not find that in your documents."
-- Cite the source filename when referencing specific facts.
-- If documents have multiple versions, prefer the latest.
-- Be concise but complete.
-
-Context:
+CONTEXT FROM DOCUMENTS:
 {context}
 
-Chat History:
-{chat_history}
+QUESTION: {question}
 
-Question: {question}
-
-Answer:"""
-
-
-def _format_docs(docs):
-    return "\n\n".join(
-        f"[Source: {d.metadata.get('filename','?')} | Chunk: {d.metadata.get('chunk_id','?')}]\n{d.page_content}"
-        for d in docs
-    )
-
-
-def _format_history(history: list) -> str:
-    lines = []
-    for msg in history[-6:]:  # last 3 exchanges
-        role = "Human" if msg["role"] == "user" else "Assistant"
-        lines.append(f"{role}: {msg['content'][:200]}")
-    return "\n".join(lines) if lines else "None"
+Answer the question based on the context. Be detailed and helpful."""
 
 
 class SimpleRAGChain:
-    """
-    Simple RAG chain that works with any LangChain-compatible LLM.
-    Avoids ConversationalRetrievalChain which has version compatibility issues.
-    """
-
-    def __init__(self, retriever, model=None, temporal_context="", hierarchy_context="", memory_window=5):
-        self.retriever = retriever
-        self.temporal_context = temporal_context
-        self.hierarchy_context = hierarchy_context
-        self.memory_window = memory_window
+    def __init__(self, kb, model=None, temporal_context="", **kwargs):
+        self.kb = kb
         self.llm = get_llm(model=model, temperature=0)
         self.history = []
 
     def __call__(self, inputs: dict) -> dict:
         question = inputs["question"]
-        chat_history_str = _format_history(self.history)
 
-        # Retrieve relevant docs
+        # Search KB directly - most reliable approach
+        docs = []
         try:
-            docs = self.retriever.get_relevant_documents(question)
-        except Exception:
-            docs = []
+            results = self.kb.search(question, k=6)
+            for item in results:
+                if isinstance(item, tuple):
+                    docs.append(item[0])
+                elif hasattr(item, "page_content"):
+                    docs.append(item)
+        except Exception as e:
+            pass
 
-        context = _format_docs(docs) if docs else "No relevant documents found."
+        if docs:
+            context = "\n\n---\n\n".join(
+                f"[{d.metadata.get('filename','?')}]\n{d.page_content}"
+                for d in docs
+            )
+        else:
+            context = "No documents found."
 
-        prompt = SYSTEM_TEMPLATE.format(
-            temporal_context=self.temporal_context or "N/A",
-            hierarchy_context=self.hierarchy_context or "",
-            context=context,
-            chat_history=chat_history_str,
-            question=question,
-        )
-
+        prompt = PROMPT.format(context=context, question=question)
         response = self.llm.invoke([HumanMessage(content=prompt)])
         answer = response.content if hasattr(response, "content") else str(response)
 
-        # Update history
         self.history.append({"role": "user", "content": question})
         self.history.append({"role": "assistant", "content": answer})
 
-        return {
-            "answer": answer,
-            "source_documents": docs,
-        }
+        return {"answer": answer, "source_documents": docs}
 
 
-def build_rag_chain(
-    retriever,
-    model: str = None,
-    temporal_context: str = "",
-    hierarchy_context: str = "",
-    memory_window: int = 5,
-):
-    return SimpleRAGChain(
-        retriever=retriever,
-        model=model,
-        temporal_context=temporal_context,
-        hierarchy_context=hierarchy_context,
-        memory_window=memory_window,
-    )
+def build_rag_chain(retriever=None, kb=None, model=None, temporal_context="", **kwargs):
+    return SimpleRAGChain(kb=kb, model=model, temporal_context=temporal_context)
 
 
-def format_sources(source_docs: List[Document]) -> List[Dict[str, Any]]:
+def format_sources(source_docs):
     seen = set()
     sources = []
     for doc in source_docs:
-        key = doc.metadata.get("chunk_id", "")
+        key = doc.metadata.get("chunk_id", doc.page_content[:40])
         if key in seen:
             continue
         seen.add(key)

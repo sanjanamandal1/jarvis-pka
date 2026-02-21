@@ -915,7 +915,7 @@ with tab_chat:
             for did, summary in st.session_state.doc_summaries.items():
                 hierarchy_ctx += f"\n[{summary.filename}]\n{summary.document_summary}\n"
             st.session_state.conversation = build_rag_chain(
-                retriever=retriever, model=model,
+                retriever=retriever, kb=kb, model=model,
                 temporal_context=temporal_ctx,
                 hierarchy_context=hierarchy_ctx.strip(),
                 memory_window=memory_k,
