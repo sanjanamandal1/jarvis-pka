@@ -879,11 +879,13 @@ if kb.is_empty():
 
 
 # ── Tabs ──────────────────────────────────────────────────────────────────────
-tab_chat, tab_compare, tab_docs, tab_sums, tab_guide = st.tabs([
+tab_chat, tab_compare, tab_docs, tab_sums, tab_quiz, tab_mindmap, tab_guide = st.tabs([
     "◈ CHAT INTERFACE",
     "⚔ COMPARE DOCS",
     "📡 DOCUMENT REGISTRY",
     "📑 KNOWLEDGE MAP",
+    "🎯 QUIZ MODE",
+    "🧠 MIND MAP",
     "🚀 DEPLOY GUIDE",
 ])
 
@@ -1115,6 +1117,154 @@ with tab_sums:
                     st.markdown(f'<div style="font-size:0.72rem;color:#6b6870;padding:0.3rem 0;border-bottom:1px solid rgba(255,26,26,0.1)">'
                                f'<span style="color:#ff1a1a;font-family:monospace">{cs.chunk_id}</span> — {cs.summary}</div>',
                                unsafe_allow_html=True)
+
+
+# ── TAB: QUIZ ─────────────────────────────────────────────────────────────────
+with tab_quiz:
+    from src.quiz_engine import QuizGenerator
+
+    st.markdown('<div class="hud-label">🎯 QUIZ MODE — TEST YOUR KNOWLEDGE</div>', unsafe_allow_html=True)
+
+    col1, col2, col3 = st.columns([2, 1, 1])
+    with col1:
+        quiz_topic = st.text_input("Topic / focus area", placeholder="e.g. cloud security, EC2, networking… (leave blank for general)", label_visibility="visible")
+    with col2:
+        n_questions = st.selectbox("Questions", [3, 5, 7, 10], index=1)
+    with col3:
+        st.markdown("<br>", unsafe_allow_html=True)
+        gen_quiz_btn = st.button("⚡ GENERATE QUIZ", type="primary", use_container_width=True)
+
+    if gen_quiz_btn:
+        if kb.is_empty():
+            st.error("No documents indexed.")
+        else:
+            with st.spinner("◈ Generating quiz…"):
+                qgen = QuizGenerator(kb=kb, model=model)
+                doc_ids = [d.doc_id for d in all_docs]
+                quiz = qgen.generate(topic=quiz_topic, n_questions=n_questions, doc_ids=doc_ids)
+            if quiz.questions:
+                st.session_state["current_quiz"] = quiz
+                st.session_state["quiz_submitted"] = False
+                st.rerun()
+            else:
+                st.error("Could not generate questions. Try a different topic.")
+
+    quiz = st.session_state.get("current_quiz")
+    quiz_submitted = st.session_state.get("quiz_submitted", False)
+
+    if quiz and quiz.questions:
+        # Score banner
+        if quiz_submitted:
+            score = quiz.calculate_score()
+            pct = int(score / len(quiz.questions) * 100)
+            color = "#ff1a1a" if pct < 50 else "#ffb700" if pct < 80 else "#00e5ff"
+            st.markdown(f"""
+            <div style="background:#0a0a0f;border:1px solid {color};padding:1.5rem;text-align:center;
+                        margin-bottom:1.5rem;clip-path:polygon(0 0,calc(100% - 12px) 0,100% 12px,100% 100%,0 100%);">
+                <div style="font-size:3rem;font-weight:900;color:{color};text-shadow:0 0 20px {color}66">{pct}%</div>
+                <div style="font-size:0.7rem;letter-spacing:0.2em;color:#6b6870;text-transform:uppercase;margin-top:0.3rem">
+                    {score} / {len(quiz.questions)} CORRECT
+                </div>
+            </div>""", unsafe_allow_html=True)
+
+        # Questions
+        user_answers = {}
+        for i, q in enumerate(quiz.questions):
+            answered = quiz_submitted
+
+            # Status indicator
+            if answered:
+                status_color = "#00e5ff" if q.is_correct else "#ff1a1a"
+                status_icon = "✓" if q.is_correct else "✗"
+            else:
+                status_color = "#6b6870"
+                status_icon = str(i+1)
+
+            st.markdown(f"""
+            <div class="hud-panel" style="margin-bottom:0.8rem;border-color:{status_color}33">
+                <div style="font-size:0.65rem;font-weight:800;letter-spacing:0.15em;color:{status_color};margin-bottom:0.6rem">
+                    QUESTION {status_icon}
+                </div>
+                <div style="font-size:0.95rem;font-weight:600;color:#e8e0d0;line-height:1.5;margin-bottom:0.8rem">{q.question}</div>
+            </div>""", unsafe_allow_html=True)
+
+            if not answered:
+                choice = st.radio(
+                    f"q{i}",
+                    q.options,
+                    index=None,
+                    label_visibility="collapsed",
+                    key=f"quiz_q_{i}",
+                )
+                if choice:
+                    user_answers[i] = choice[0]  # "A", "B", etc.
+            else:
+                for opt in q.options:
+                    is_correct_opt = opt[0].upper() == q.answer.upper()
+                    is_user_opt = q.user_answer and opt[0].upper() == q.user_answer.upper()
+                    if is_correct_opt:
+                        color_css = "color:#00e5ff;font-weight:700"
+                        prefix = "✓ "
+                    elif is_user_opt and not is_correct_opt:
+                        color_css = "color:#ff1a1a;text-decoration:line-through"
+                        prefix = "✗ "
+                    else:
+                        color_css = "color:#6b6870"
+                        prefix = "  "
+                    st.markdown(f'<div style="font-size:0.85rem;padding:0.2rem 0.5rem;{color_css}">{prefix}{opt}</div>', unsafe_allow_html=True)
+
+                if q.explanation:
+                    st.markdown(f'<div style="font-size:0.78rem;color:#ffb700;background:#0a0a0f;border-left:2px solid #ffb700;padding:0.5rem 0.75rem;margin-top:0.4rem">💡 {q.explanation}</div>', unsafe_allow_html=True)
+
+        # Submit / retry
+        if not quiz_submitted:
+            if st.button("⚡ SUBMIT ANSWERS", type="primary", use_container_width=True):
+                for i, q in enumerate(quiz.questions):
+                    q.user_answer = user_answers.get(i, "")
+                st.session_state["quiz_submitted"] = True
+                st.rerun()
+        else:
+            if st.button("🔄 NEW QUIZ", use_container_width=True):
+                st.session_state["current_quiz"] = None
+                st.session_state["quiz_submitted"] = False
+                st.rerun()
+
+
+# ── TAB: MIND MAP ─────────────────────────────────────────────────────────────
+with tab_mindmap:
+    from src.mindmap_generator import MindMapGenerator, render_mindmap_html
+
+    st.markdown('<div class="hud-label">🧠 KNOWLEDGE MIND MAP — INTERACTIVE GRAPH</div>', unsafe_allow_html=True)
+
+    col1, col2 = st.columns([3, 1])
+    with col1:
+        mm_topic = st.text_input("Focus topic", placeholder="e.g. cloud services, security… (blank = full document)", label_visibility="visible", key="mm_topic")
+    with col2:
+        st.markdown("<br>", unsafe_allow_html=True)
+        gen_mm_btn = st.button("🧠 GENERATE MAP", type="primary", use_container_width=True)
+
+    if gen_mm_btn:
+        if kb.is_empty():
+            st.error("No documents indexed.")
+        else:
+            with st.spinner("◈ Mapping knowledge graph…"):
+                mmgen = MindMapGenerator(kb=kb, model=model)
+                doc_ids = [d.doc_id for d in all_docs]
+                mindmap = mmgen.generate(topic=mm_topic, doc_ids=doc_ids)
+                st.session_state["current_mindmap"] = mindmap
+
+    mindmap = st.session_state.get("current_mindmap")
+    if mindmap and (mindmap.nodes or mindmap.central != "No Data"):
+        st.markdown(f'<div style="font-size:0.65rem;color:#6b6870;letter-spacing:0.1em;margin-bottom:0.5rem">◈ {len(mindmap.nodes)} CONCEPTS · {len(mindmap.links)} CONNECTIONS · DRAG TO EXPLORE</div>', unsafe_allow_html=True)
+        html_content = render_mindmap_html(mindmap)
+        st.components.v1.html(html_content, height=600, scrolling=False)
+    else:
+        st.markdown("""
+        <div class="empty-hud" style="padding:3rem">
+            <div class="empty-ring" style="width:60px;height:60px;margin-bottom:1rem"></div>
+            <div class="empty-title" style="font-size:1rem">AWAITING SCAN</div>
+            <div class="empty-sub">Click GENERATE MAP to build an interactive<br>knowledge graph from your documents</div>
+        </div>""", unsafe_allow_html=True)
 
 
 # ── TAB: DEPLOY GUIDE ────────────────────────────────────────────────────────
