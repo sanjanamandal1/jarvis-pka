@@ -1,8 +1,6 @@
 """
 LLM Provider Factory.
-Gemini: uses google-generativeai SDK directly.
-OpenAI: uses langchain-openai.
-Embeddings: always local HuggingFace (free, no quota).
+Gemini: forces REST transport to avoid gRPC issues on Streamlit Cloud.
 """
 
 from __future__ import annotations
@@ -30,7 +28,7 @@ def get_provider() -> Provider:
 
 def get_llm(model: str = None, temperature: float = 0, streaming: bool = False):
     if _provider == "gemini":
-        return _GeminiDirectLLM(
+        return _GeminiRestLLM(
             model=model or "gemini-2.5-flash",
             temperature=temperature,
             api_key=_api_key or os.environ.get("GOOGLE_API_KEY", ""),
@@ -53,7 +51,6 @@ def get_embeddings():
     )
 
 
-# gemini-2.5-flash is the model available on free tier keys
 OPENAI_MODELS = ["gpt-3.5-turbo", "gpt-4o-mini", "gpt-4o"]
 GEMINI_MODELS = ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-2.0-flash-lite"]
 
@@ -67,8 +64,8 @@ class _Msg:
         self.content = content
 
 
-class _GeminiDirectLLM:
-    """Direct Gemini API call — bypasses langchain-google-genai entirely."""
+class _GeminiRestLLM:
+    """Calls Gemini via REST API directly — no gRPC, no SDK transport issues."""
 
     def __init__(self, model: str, temperature: float, api_key: str):
         self.model_name = model
@@ -76,14 +73,25 @@ class _GeminiDirectLLM:
         self.api_key = api_key
 
     def _call(self, prompt: str) -> str:
-        import google.generativeai as genai
-        genai.configure(api_key=self.api_key)
-        m = genai.GenerativeModel(
-            model_name=self.model_name,
-            generation_config={"temperature": self.temperature},
+        import urllib.request
+        import json
+
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{self.model_name}:generateContent?key={self.api_key}"
+        payload = json.dumps({
+            "contents": [{"parts": [{"text": prompt}]}],
+            "generationConfig": {"temperature": self.temperature}
+        }).encode("utf-8")
+
+        req = urllib.request.Request(
+            url,
+            data=payload,
+            headers={"Content-Type": "application/json"},
+            method="POST"
         )
-        resp = m.generate_content(prompt)
-        return resp.text
+        with urllib.request.urlopen(req, timeout=60) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+
+        return data["candidates"][0]["content"]["parts"][0]["text"]
 
     def invoke(self, messages, **kwargs) -> _Msg:
         prompt = "\n\n".join(
