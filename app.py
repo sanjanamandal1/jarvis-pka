@@ -21,6 +21,8 @@ from src.rag_chain import build_rag_chain, format_sources
 from src.hybrid_search import HybridRetriever
 from src.multi_query import MultiQueryFuser
 from src.citation_comparator import CitationHighlighter, DocumentComparator
+from src.quiz_engine import QuizGenerator
+from src.mindmap_generator import MindMapGenerator, render_mindmap_html
 
 # ── Page config ───────────────────────────────────────────────────────────────
 st.set_page_config(
@@ -1121,8 +1123,6 @@ with tab_sums:
 
 # ── TAB: QUIZ ─────────────────────────────────────────────────────────────────
 with tab_quiz:
-    from src.quiz_engine import QuizGenerator
-
     st.markdown('<div class="hud-label">🎯 QUIZ MODE — TEST YOUR KNOWLEDGE</div>', unsafe_allow_html=True)
 
     col1, col2, col3 = st.columns([2, 1, 1])
@@ -1232,8 +1232,6 @@ with tab_quiz:
 
 # ── TAB: MIND MAP ─────────────────────────────────────────────────────────────
 with tab_mindmap:
-    from src.mindmap_generator import MindMapGenerator, render_mindmap_html
-
     st.markdown('<div class="hud-label">🧠 KNOWLEDGE MIND MAP — INTERACTIVE GRAPH</div>', unsafe_allow_html=True)
 
     col1, col2 = st.columns([3, 1])
