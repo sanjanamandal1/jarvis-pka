@@ -13,6 +13,9 @@ from langchain_community.vectorstores import FAISS
 from langchain_core.documents import Document
 
 from .semantic_chunker import SemanticChunk
+from src.logger import get_logger
+
+log = get_logger("knowledge_base")
 
 
 INDEX_DIR = Path(".pka_data/faiss_index")
@@ -42,6 +45,7 @@ class KnowledgeBase:
         uploaded_at: str,
     ):
         """Add (or replace) a document in the knowledge base."""
+        log.info(f"Adding document: {filename} | v{doc_version} | {len(chunks)} chunks")
         self._remove_doc(doc_id)
 
         embeddings = _get_embeddings()  # lazy — uses current provider

@@ -6,6 +6,9 @@ Gemini: forces REST transport to avoid gRPC issues on Streamlit Cloud.
 from __future__ import annotations
 import os
 from typing import Literal
+from src.logger import get_logger
+
+log = get_logger("llm_provider")
 
 Provider = Literal["openai", "gemini"]
 _provider: Provider = "openai"
@@ -20,6 +23,7 @@ def configure_provider(provider: Provider, api_key: str):
         os.environ["OPENAI_API_KEY"] = api_key
     elif provider == "gemini":
         os.environ["GOOGLE_API_KEY"] = api_key
+    log.info(f"Provider configured: {provider} | model family ready")
 
 
 def get_provider() -> Provider:
@@ -43,12 +47,24 @@ def get_llm(model: str = None, temperature: float = 0, streaming: bool = False):
 
 
 def get_embeddings():
+    return _load_embeddings()
+
+
+def _load_embeddings():
+    """
+    Load HuggingFace embeddings.
+    Cached at app level via @st.cache_resource in app.py
+    so the model is only downloaded once per session.
+    """
     from langchain_community.embeddings import HuggingFaceEmbeddings
-    return HuggingFaceEmbeddings(
+    log.info("Loading HuggingFace embeddings model (all-MiniLM-L6-v2)…")
+    emb = HuggingFaceEmbeddings(
         model_name="all-MiniLM-L6-v2",
         model_kwargs={"device": "cpu"},
         encode_kwargs={"normalize_embeddings": True},
     )
+    log.info("Embeddings model loaded ✓")
+    return emb
 
 
 OPENAI_MODELS = ["gpt-3.5-turbo", "gpt-4o-mini", "gpt-4o"]
@@ -81,7 +97,8 @@ class _GeminiRestLLM:
             "generationConfig": {"temperature": self.temperature}
         }
         resp = requests.post(url, json=payload, params={"key": self.api_key}, timeout=60)
-        resp.raise_for_status()
+        if not resp.ok:
+            raise Exception(f"Gemini API error {resp.status_code}: {resp.text[:300]}")
         data = resp.json()
         return data["candidates"][0]["content"]["parts"][0]["text"]
 

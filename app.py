@@ -23,6 +23,10 @@ from src.multi_query import MultiQueryFuser
 from src.citation_comparator import CitationHighlighter, DocumentComparator
 from src.quiz_engine import QuizGenerator
 from src.mindmap_generator import MindMapGenerator, render_mindmap_html
+from src.logger import get_logger
+
+log = get_logger("app")
+log.info("JARVIS PKA starting up…")
 
 # ── Page config ───────────────────────────────────────────────────────────────
 st.set_page_config(
@@ -605,8 +609,16 @@ def init():
 
 init()
 
+@st.cache_resource(show_spinner="⚙ Loading embeddings model…")
+def _cached_embeddings():
+    """Cached so all-MiniLM-L6-v2 is only downloaded once per session."""
+    from src.llm_provider import _load_embeddings
+    return _load_embeddings()
+
+
 def get_kb():
     if st.session_state.kb is None:
+        log.info("Initialising KnowledgeBase…")
         st.session_state.kb = KnowledgeBase()
     return st.session_state.kb
 
