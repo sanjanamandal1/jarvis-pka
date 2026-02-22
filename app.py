@@ -21,7 +21,7 @@ from src.rag_chain import build_rag_chain, format_sources
 from src.hybrid_search import HybridRetriever
 from src.multi_query import MultiQueryFuser
 from src.citation_comparator import CitationHighlighter, DocumentComparator
-from src.quize_engine import QuizGenerator
+from src.quiz_engine import QuizGenerator
 from src.mindmap_generator import MindMapGenerator, render_mindmap_html
 
 # ── Page config ───────────────────────────────────────────────────────────────
@@ -1139,15 +1139,22 @@ with tab_quiz:
             st.error("No documents indexed.")
         else:
             with st.spinner("◈ Generating quiz…"):
-                qgen = QuizGenerator(kb=kb, model=model)
-                doc_ids = [d.doc_id for d in all_docs]
-                quiz = qgen.generate(topic=quiz_topic, n_questions=n_questions, doc_ids=doc_ids)
-            if quiz.questions:
-                st.session_state["current_quiz"] = quiz
-                st.session_state["quiz_submitted"] = False
-                st.rerun()
-            else:
-                st.error("Could not generate questions. Try a different topic.")
+                try:
+                    qgen = QuizGenerator(kb=kb, model=model)
+                    doc_ids = [d.doc_id for d in all_docs]
+                    quiz = qgen.generate(topic=quiz_topic, n_questions=n_questions, doc_ids=doc_ids)
+                    if quiz.questions:
+                        st.session_state["current_quiz"] = quiz
+                        st.session_state["quiz_submitted"] = False
+                        st.rerun()
+                    else:
+                        st.error("Could not generate questions. Try a different topic.")
+                except Exception as e:
+                    err = str(e).lower()
+                    if "429" in str(e) or "quota" in err or "rate" in err or "exhausted" in err:
+                        st.warning("⏳ Rate limit hit (5 req/min on free tier). Wait 60 seconds and try again.")
+                    else:
+                        st.error(f"Quiz error: {e}")
 
     quiz = st.session_state.get("current_quiz")
     quiz_submitted = st.session_state.get("quiz_submitted", False)
@@ -1246,10 +1253,17 @@ with tab_mindmap:
             st.error("No documents indexed.")
         else:
             with st.spinner("◈ Mapping knowledge graph…"):
-                mmgen = MindMapGenerator(kb=kb, model=model)
-                doc_ids = [d.doc_id for d in all_docs]
-                mindmap = mmgen.generate(topic=mm_topic, doc_ids=doc_ids)
-                st.session_state["current_mindmap"] = mindmap
+                try:
+                    mmgen = MindMapGenerator(kb=kb, model=model)
+                    doc_ids = [d.doc_id for d in all_docs]
+                    mindmap = mmgen.generate(topic=mm_topic, doc_ids=doc_ids)
+                    st.session_state["current_mindmap"] = mindmap
+                except Exception as e:
+                    err = str(e).lower()
+                    if "429" in str(e) or "quota" in err or "rate" in err or "exhausted" in err:
+                        st.warning("⏳ Rate limit hit (5 req/min on free tier). Wait 60 seconds and try again.")
+                    else:
+                        st.error(f"Mind map error: {e}")
 
     mindmap = st.session_state.get("current_mindmap")
     if mindmap and (mindmap.nodes or mindmap.central != "No Data"):
