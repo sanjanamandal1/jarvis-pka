@@ -1,6 +1,6 @@
 # 🔴 J.A.R.V.I.S. — Personal Knowledge Assistant
 
-> **Just A Rather Very Intelligent System** — An AI-powered document intelligence platform with Iron Man HUD aesthetics. Chat with your PDFs, generate quizzes, explore interactive mind maps, and compare documents side-by-side.
+> **Just A Rather Very Intelligent System** — An AI-powered document intelligence platform with Iron Man HUD aesthetics.
 
 ![Python](https://img.shields.io/badge/Python-3.11-red?style=flat-square&labelColor=000)
 ![Streamlit](https://img.shields.io/badge/Streamlit-1.32+-red?style=flat-square&labelColor=000)
@@ -22,24 +22,30 @@
           I N T E L L I G E N T   S Y S T E M
 ```
 
+---
+
 ## ✦ Features
 
 | Feature | Description |
 |---|---|
-| **💬 RAG Chat** | Chat with your documents using semantic search + Gemini AI |
-| **🎯 Quiz Mode** | Auto-generate MCQ quizzes from your documents with scoring |
-| **🧠 Mind Map** | Interactive D3.js knowledge graph — drag, explore, hover |
-| **⚔ Doc Comparison** | Side-by-side comparison of any 2 documents |
+| **💬 RAG Chat** | Chat with your documents — semantic search + Gemini AI answers |
+| **🧠 Query Classification** | Detects intent (summary / comparison / definition / procedural) and adapts response format |
+| **✓ Hallucination Detection** | Scores every answer's grounding in source docs — flags unverified claims in real time |
+| **🎯 Quiz Mode** | Auto-generates MCQ quizzes from your documents with scoring and explanations |
+| **🧠 Mind Map** | Interactive Canvas-based knowledge graph — drag, explore, hover for descriptions |
+| **⚔ Doc Comparison** | Side-by-side structured comparison of any 2 documents |
 | **🔍 Semantic Chunking** | Topic-aware chunking using sentence-transformer embeddings |
+| **⚡ Hybrid Search** | BM25 keyword + FAISS semantic search with Reciprocal Rank Fusion |
 | **📑 Hierarchical Summaries** | 3-level summary tree: chunk → section → document |
 | **🕐 Version Tracking** | Detects re-uploads, tracks diffs between document versions |
-| **⚡ Hybrid Search** | BM25 keyword + FAISS semantic search with RRF fusion |
+| **📊 Structured Logging** | Rotating file + console logs for every API call, retrieval, and error |
+| **⚙ Caching** | `@st.cache_resource` for embeddings — loaded once per session |
 
 ---
 
-## ✦ Demo
+## ✦ Live Demo
 
-🚀 **Live App:** [jarvis-pka.streamlit.app](https://sanjanamandal1-jarvis-pka-app.streamlit.app)
+🚀 **[jarvis-pka.streamlit.app](https://sanjanamandal1-jarvis-pka-app.streamlit.app)**
 
 ---
 
@@ -57,11 +63,10 @@ streamlit run app.py
 ```
 
 ### 3. Use the app
-1. Select **Gemini** in the sidebar → paste your API key
-2. Choose **`gemini-2.5-flash`** model
-3. Keep **Hierarchical Summaries unchecked** (saves API quota)
-4. Upload PDFs → click **⚡ INITIALIZE SYSTEM**
-5. Start chatting, quizzing, or generating mind maps!
+1. Select **Gemini** → paste your API key → choose **`gemini-2.5-flash`**
+2. Keep **Hierarchical Summaries unchecked** (saves API quota)
+3. Upload PDFs → click **⚡ INITIALIZE SYSTEM**
+4. Chat, quiz, or generate mind maps
 
 ---
 
@@ -74,9 +79,9 @@ PDF / TXT / MD
 Sentence Tokenization
       │
       ▼
-Semantic Chunking (all-MiniLM-L6-v2 embeddings + cosine similarity breakpoints)
+Semantic Chunking ── all-MiniLM-L6-v2 embeddings + cosine similarity breakpoints
       │
-      ├──► FAISS Vector Index (local HuggingFace embeddings)
+      ├──► FAISS Vector Index  (local HuggingFace embeddings, free)
       ├──► BM25 Keyword Index
       └──► Temporal Version Manager (SHA-256 diff tracking)
                     │
@@ -84,16 +89,20 @@ Semantic Chunking (all-MiniLM-L6-v2 embeddings + cosine similarity breakpoints)
                     │
           ┌─────────┴──────────┐
           ▼                    ▼
-    FAISS Search          BM25 Search
-          └────────┬───────────┘
-                   ▼
-           RRF Fusion (Hybrid)
-                   │
-                   ▼
+    Query Classifier      FAISS + BM25
+    (intent detection)    (hybrid search)
+          │                    │
+          └─────────┬──────────┘
+                    ▼
            Gemini 2.5 Flash
-                   │
-                   ▼
-        Answer + Citations + Sources
+                    │
+                    ▼
+         Hallucination Detector
+         (Jaccard grounding check)
+                    │
+                    ▼
+        Answer + Grounding Score
+        + Citations + Sources
 ```
 
 ---
@@ -102,47 +111,65 @@ Semantic Chunking (all-MiniLM-L6-v2 embeddings + cosine similarity breakpoints)
 
 ```
 jarvis-pka/
-├── app.py                        # Main Streamlit application
+├── app.py                          # Main Streamlit application
 ├── requirements.txt
 ├── src/
-│   ├── rag_chain.py              # Core RAG chain
-│   ├── knowledge_base.py         # FAISS vector store
-│   ├── semantic_chunker.py       # Sentence-transformer chunking
-│   ├── hierarchical_summarizer.py# 3-level summary tree
-│   ├── temporal_manager.py       # Version control & diffs
-│   ├── hybrid_search.py          # BM25 + FAISS + RRF
-│   ├── multi_query.py            # Multi-query fusion
-│   ├── citation_comparator.py    # Citation highlighting & doc comparison
-│   ├── quiz_engine.py            # MCQ quiz generator
-│   ├── mindmap_generator.py      # D3.js mind map generator
-│   ├── llm_provider.py           # OpenAI / Gemini factory
-│   └── document_loader.py        # PDF / TXT / MD extraction
+│   ├── rag_chain.py                # Core RAG pipeline
+│   ├── query_classifier.py         # Intent detection (6 types)
+│   ├── hallucination_detector.py   # Grounding score per response
+│   ├── knowledge_base.py           # FAISS vector store
+│   ├── semantic_chunker.py         # Sentence-transformer chunking
+│   ├── hierarchical_summarizer.py  # 3-level summary tree
+│   ├── temporal_manager.py         # Version control & diffs
+│   ├── hybrid_search.py            # BM25 + FAISS + RRF
+│   ├── multi_query.py              # Multi-query fusion
+│   ├── citation_comparator.py      # Citation highlighting & doc comparison
+│   ├── quiz_engine.py              # MCQ quiz generator
+│   ├── mindmap_generator.py        # Canvas-based mind map
+│   ├── llm_provider.py             # OpenAI / Gemini factory
+│   ├── logger.py                   # Structured rotating logger
+│   └── document_loader.py          # PDF / TXT / MD extraction
 ├── tests/
 │   ├── test_chunker.py
 │   └── test_temporal.py
-└── .streamlit/config.toml        # JARVIS HUD theme
+└── .streamlit/config.toml
 ```
+
+---
+
+## ✦ Resume Summary
+
+> **JARVIS — Personal Knowledge Assistant** | *Python · LangChain · FAISS · Google Gemini · Streamlit · GitHub Actions*
+> - Engineered end-to-end RAG pipeline: PDF ingestion → semantic chunking → hybrid BM25+FAISS retrieval with Reciprocal Rank Fusion → Gemini 2.5 Flash generation
+> - Implemented query intent classifier (6 types) that dynamically switches prompt templates, improving answer structure and relevance
+> - Built hallucination detector using Jaccard similarity to verify LLM claims against retrieved chunks — no additional API calls required
+> - Shipped 12 features including interactive knowledge graphs, MCQ quiz generation, document version tracking, citation highlighting, and structured logging
+> - Configured CI/CD with GitHub Actions; deployed live on Streamlit Cloud with `@st.cache_resource` caching and rotating file logging
 
 ---
 
 ## ✦ Free Tier Tips
 
-The Gemini free tier has a limit of **5 requests/minute**. To stay within limits:
+Gemini free tier = **5 requests/minute**, **~25 requests/day**.
+
 - Keep **Hierarchical Summaries unchecked** during ingestion
-- Don't spam questions rapidly — wait 1-2 seconds between queries
-- For large documents, upload one at a time
+- Wait 15–20 seconds between quiz/mind map generations
+- For production scale: add billing to your Google Cloud project ($5 lasts months)
 
 ---
 
 ## ✦ Tech Stack
 
-- **Frontend:** Streamlit + custom CSS (Iron Man HUD theme, Raleway font)
-- **LLM:** Google Gemini 2.5 Flash (free tier)
-- **Embeddings:** `all-MiniLM-L6-v2` via sentence-transformers (local, free)
-- **Vector Store:** FAISS
-- **RAG Framework:** LangChain
-- **Mind Map:** D3.js force-directed graph
-- **CI/CD:** GitHub Actions
+| Layer | Technology |
+|---|---|
+| Frontend | Streamlit + custom CSS (Iron Man HUD, Raleway font) |
+| LLM | Google Gemini 2.5 Flash (REST API, free tier) |
+| Embeddings | `all-MiniLM-L6-v2` via sentence-transformers (local, free) |
+| Vector Store | FAISS |
+| RAG Framework | LangChain |
+| Mind Map | HTML5 Canvas + custom physics simulation |
+| CI/CD | GitHub Actions |
+| Deployment | Streamlit Cloud |
 
 ---
 
