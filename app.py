@@ -24,6 +24,7 @@ from src.citation_comparator import CitationHighlighter, DocumentComparator
 from src.quiz_engine import QuizGenerator
 from src.mindmap_generator import MindMapGenerator, render_mindmap_html
 from src.logger import get_logger
+from src.hallucination_detector import detect as detect_hallucination
 
 log = get_logger("app")
 log.info("JARVIS PKA starting up…")
@@ -962,12 +963,37 @@ with tab_chat:
             for src in msg.get("sources", []):
                 src_html += f'<span class="src-chip">📄 {src["filename"][:20]} v{src["version"]}</span>'
 
+            # Grounding badge
+            g_verdict = msg.get("grounding_verdict", "")
+            g_color = msg.get("grounding_color", "#6b6870")
+            g_icon = msg.get("grounding_icon", "◈")
+            g_score = int(msg.get("grounding_score", 1.0) * 100)
+            grounding_html = (
+                f'<div style="display:inline-flex;align-items:center;gap:6px;'
+                f'background:#0a0a0f;border:1px solid {g_color}44;'
+                f'padding:3px 10px;margin-top:8px;font-size:0.6rem;'
+                f'letter-spacing:0.12em;color:{g_color}">'
+                f'{g_icon} GROUNDING · {g_verdict} · {g_score}%</div>'
+            ) if g_verdict else ""
+            ungrounded = msg.get("ungrounded_claims", [])
+            if ungrounded:
+                items = "".join(f"<li style='font-size:0.78rem'>{c[:120]}</li>" for c in ungrounded[:3])
+                ungrounded_html = (
+                    f'<div style="background:#1a0505;border-left:3px solid #ff1a1a;'
+                    f'padding:8px 12px;margin-top:8px;">'
+                    f'<div style="color:#ff1a1a;font-weight:800;margin-bottom:4px">⚠ UNVERIFIED CLAIMS</div>'
+                    f'<ul style="margin:0;padding-left:16px;color:#e8e0d0">{items}</ul></div>'
+                )
+            else:
+                ungrounded_html = ""
             st.markdown(
                 f'<div class="msg-assistant">'
                 f'<div class="msg-label asst">{msg.get("intent_icon","◈")} JARVIS · {msg.get("intent","RESPONSE").upper()}</div>'
                 f'{queries_html}'
                 f'{answer_html}'
                 f'{"<br/><br/>" + src_html if src_html else ""}'
+                f'{grounding_html}'
+                f'{ungrounded_html}'
                 f'</div>',
                 unsafe_allow_html=True,
             )
@@ -1041,6 +1067,13 @@ with tab_chat:
                     msg_data["sources"] = format_sources(src_docs)
                     msg_data["intent"] = intent
                     msg_data["intent_icon"] = intent_icon
+                    grounding = result.get("grounding")
+                    if grounding:
+                        msg_data["grounding_verdict"] = grounding.verdict
+                        msg_data["grounding_color"] = grounding.verdict_color
+                        msg_data["grounding_icon"] = grounding.verdict_icon
+                        msg_data["grounding_score"] = grounding.score
+                        msg_data["ungrounded_claims"] = grounding.ungrounded_claims
                     if use_citations and st.session_state.citation_hl:
                         cited = st.session_state.citation_hl.highlight(answer, src_docs)
                         msg_data["cited_answer"] = cited.answer_with_markers

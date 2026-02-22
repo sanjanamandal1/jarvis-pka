@@ -1,7 +1,5 @@
 """
-Context-aware RAG chain with query classification.
-Detects intent (summary/comparison/definition/factual/etc.)
-and uses a tailored prompt for each.
+Context-aware RAG chain with query classification + hallucination detection.
 """
 from __future__ import annotations
 from typing import List, Dict, Any
@@ -9,6 +7,7 @@ from langchain_core.documents import Document
 from langchain_core.messages import HumanMessage
 from src.llm_provider import get_llm
 from src.query_classifier import classify, ClassifiedQuery
+from src.hallucination_detector import detect, GroundingResult
 from src.logger import get_logger
 
 log = get_logger("rag_chain")
@@ -40,11 +39,11 @@ class SimpleRAGChain:
     def __call__(self, inputs: dict) -> dict:
         question = inputs["question"]
 
-        # Step 1: Classify query intent
+        # Step 1: Classify intent
         classified: ClassifiedQuery = classify(question)
         log.info(f"Intent: {classified.intent} | Q: {question[:60]}")
 
-        # Step 2: Retrieve relevant docs
+        # Step 2: Retrieve docs
         docs = []
         try:
             results = self.kb.search(question, k=6)
@@ -58,7 +57,7 @@ class SimpleRAGChain:
 
         context = _format_docs(docs)
 
-        # Step 3: Build prompt using intent-specific template
+        # Step 3: Build intent-specific prompt
         prompt = classified.prompt_template.format(
             context=context,
             question=question,
@@ -68,7 +67,9 @@ class SimpleRAGChain:
         response = self.llm.invoke([HumanMessage(content=prompt)])
         answer = response.content if hasattr(response, "content") else str(response)
 
-        log.info(f"Answer generated | intent={classified.intent} | len={len(answer)}")
+        # Step 5: Hallucination detection
+        grounding: GroundingResult = detect(answer, docs)
+        log.info(f"Grounding: {grounding.verdict} ({grounding.score:.0%})")
 
         self.history.append({"role": "user", "content": question})
         self.history.append({"role": "assistant", "content": answer})
@@ -78,6 +79,7 @@ class SimpleRAGChain:
             "source_documents": docs,
             "intent": classified.intent,
             "intent_icon": classified.icon,
+            "grounding": grounding,
         }
 
 
