@@ -21,7 +21,7 @@ from src.rag_chain import build_rag_chain, format_sources
 from src.hybrid_search import HybridRetriever
 from src.multi_query import MultiQueryFuser
 from src.citation_comparator import CitationHighlighter, DocumentComparator
-from src.quiz_engine import QuizGenerator
+from src.quize_engine import QuizGenerator
 from src.mindmap_generator import MindMapGenerator, render_mindmap_html
 from src.logger import get_logger
 from src.hallucination_detector import detect as detect_hallucination
