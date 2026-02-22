@@ -1,20 +1,34 @@
 """
-Simple, reliable RAG chain.
+Context-aware RAG chain with query classification.
+Detects intent (summary/comparison/definition/factual/etc.)
+and uses a tailored prompt for each.
 """
 from __future__ import annotations
 from typing import List, Dict, Any
 from langchain_core.documents import Document
 from langchain_core.messages import HumanMessage
 from src.llm_provider import get_llm
+from src.query_classifier import classify, ClassifiedQuery
+from src.logger import get_logger
 
-PROMPT = """You are J.A.R.V.I.S., a helpful document assistant. Use the context below to answer the question.
+log = get_logger("rag_chain")
 
-CONTEXT FROM DOCUMENTS:
-{context}
 
-QUESTION: {question}
+def _format_docs(docs):
+    if not docs:
+        return "No documents retrieved."
+    return "\n\n---\n\n".join(
+        f"[Source: {d.metadata.get('filename','?')}]\n{d.page_content}"
+        for d in docs
+    )
 
-Answer the question based on the context. Be detailed and helpful."""
+
+def _format_history(history: list) -> str:
+    lines = []
+    for msg in history[-6:]:
+        role = "Human" if msg["role"] == "user" else "Assistant"
+        lines.append(f"{role}: {msg['content'][:200]}")
+    return "\n".join(lines) if lines else "None"
 
 
 class SimpleRAGChain:
@@ -26,7 +40,11 @@ class SimpleRAGChain:
     def __call__(self, inputs: dict) -> dict:
         question = inputs["question"]
 
-        # Search KB directly - most reliable approach
+        # Step 1: Classify query intent
+        classified: ClassifiedQuery = classify(question)
+        log.info(f"Intent: {classified.intent} | Q: {question[:60]}")
+
+        # Step 2: Retrieve relevant docs
         docs = []
         try:
             results = self.kb.search(question, k=6)
@@ -36,31 +54,38 @@ class SimpleRAGChain:
                 elif hasattr(item, "page_content"):
                     docs.append(item)
         except Exception as e:
-            pass
+            log.error(f"Retrieval error: {e}")
 
-        if docs:
-            context = "\n\n---\n\n".join(
-                f"[{d.metadata.get('filename','?')}]\n{d.page_content}"
-                for d in docs
-            )
-        else:
-            context = "No documents found."
+        context = _format_docs(docs)
 
-        prompt = PROMPT.format(context=context, question=question)
+        # Step 3: Build prompt using intent-specific template
+        prompt = classified.prompt_template.format(
+            context=context,
+            question=question,
+        )
+
+        # Step 4: Call LLM
         response = self.llm.invoke([HumanMessage(content=prompt)])
         answer = response.content if hasattr(response, "content") else str(response)
+
+        log.info(f"Answer generated | intent={classified.intent} | len={len(answer)}")
 
         self.history.append({"role": "user", "content": question})
         self.history.append({"role": "assistant", "content": answer})
 
-        return {"answer": answer, "source_documents": docs}
+        return {
+            "answer": answer,
+            "source_documents": docs,
+            "intent": classified.intent,
+            "intent_icon": classified.icon,
+        }
 
 
 def build_rag_chain(retriever=None, kb=None, model=None, temporal_context="", **kwargs):
     return SimpleRAGChain(kb=kb, model=model, temporal_context=temporal_context)
 
 
-def format_sources(source_docs):
+def format_sources(source_docs: List[Document]) -> List[Dict[str, Any]]:
     seen = set()
     sources = []
     for doc in source_docs:

@@ -21,7 +21,7 @@ from src.rag_chain import build_rag_chain, format_sources
 from src.hybrid_search import HybridRetriever
 from src.multi_query import MultiQueryFuser
 from src.citation_comparator import CitationHighlighter, DocumentComparator
-from src.quize_engine import QuizGenerator
+from src.quiz_engine import QuizGenerator
 from src.mindmap_generator import MindMapGenerator, render_mindmap_html
 from src.logger import get_logger
 
@@ -964,7 +964,7 @@ with tab_chat:
 
             st.markdown(
                 f'<div class="msg-assistant">'
-                f'<div class="msg-label asst">◈ JARVIS Response</div>'
+                f'<div class="msg-label asst">{msg.get("intent_icon","◈")} JARVIS · {msg.get("intent","RESPONSE").upper()}</div>'
                 f'{queries_html}'
                 f'{answer_html}'
                 f'{"<br/><br/>" + src_html if src_html else ""}'
@@ -1035,8 +1035,12 @@ with tab_chat:
                     result = st.session_state.conversation({"question": last_q})
                     answer = result["answer"]
                     src_docs = result.get("source_documents", [])
+                    intent = result.get("intent", "factual")
+                    intent_icon = result.get("intent_icon", "◈")
                     msg_data["content"] = answer
                     msg_data["sources"] = format_sources(src_docs)
+                    msg_data["intent"] = intent
+                    msg_data["intent_icon"] = intent_icon
                     if use_citations and st.session_state.citation_hl:
                         cited = st.session_state.citation_hl.highlight(answer, src_docs)
                         msg_data["cited_answer"] = cited.answer_with_markers
