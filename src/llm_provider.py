@@ -6,7 +6,7 @@ Gemini: forces REST transport to avoid gRPC issues on Streamlit Cloud.
 from __future__ import annotations
 import os
 from typing import Literal
-from src.logger import get_logger
+from .logger import get_logger
 
 log = get_logger("llm_provider")
 

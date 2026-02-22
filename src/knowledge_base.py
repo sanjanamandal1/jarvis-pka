@@ -13,7 +13,7 @@ from langchain_community.vectorstores import FAISS
 from langchain_core.documents import Document
 
 from .semantic_chunker import SemanticChunk
-from src.logger import get_logger
+from .logger import get_logger
 
 log = get_logger("knowledge_base")
 
