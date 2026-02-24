@@ -35,7 +35,7 @@
 | **🧠 Mind Map** | Interactive Canvas-based knowledge graph — drag, explore, hover for descriptions |
 | **⚔ Doc Comparison** | Side-by-side structured comparison of any 2 documents |
 | **🔍 Semantic Chunking** | Topic-aware chunking using sentence-transformer embeddings |
-| **⚡ Hybrid Search** | BM25 keyword + FAISS semantic search with Reciprocal Rank Fusion |
+| **⚡ Hybrid Search** | BM25 keyword + FAISS semantic search with Reciprocal Rank Fusion  |
 | **📑 Hierarchical Summaries** | 3-level summary tree: chunk → section → document |
 | **🕐 Version Tracking** | Detects re-uploads, tracks diffs between document versions |
 | **📊 Structured Logging** | Rotating file + console logs for every API call, retrieval, and error |
