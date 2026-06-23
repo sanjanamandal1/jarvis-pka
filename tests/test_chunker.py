@@ -6,7 +6,7 @@ from src.semantic_chunker import split_into_sentences, SemanticChunk
 
 
 def test_sentence_splitter_basic():
-    text = "Hello world. This is a test. Does it work?"
+    text = "Hello world, this is a longer sentence. This is a test, which is also quite long. Does it work as expected?"
     sents = split_into_sentences(text)
     assert len(sents) >= 1
 
