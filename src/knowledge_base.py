@@ -28,11 +28,13 @@ def _get_embeddings():
 
 
 class KnowledgeBase:
-    def __init__(self):
+    def __init__(self, workspace_path: Path = None):
         self._vectorstore: Optional[FAISS] = None
         self._chunk_meta: Dict[str, dict] = {}
+        # Support workspace-scoped index directories
+        self._index_dir = (workspace_path / "faiss_index") if workspace_path else INDEX_DIR
+        self._index_dir.mkdir(parents=True, exist_ok=True)
         # NOTE: do NOT init embeddings here — provider may not be set yet
-        INDEX_DIR.mkdir(parents=True, exist_ok=True)
 
     # ── Public API ────────────────────────────────────────────────────────────
 
@@ -128,25 +130,25 @@ class KnowledgeBase:
 
     def _save(self):
         if self._vectorstore:
-            self._vectorstore.save_local(str(INDEX_DIR))
-        meta_path = INDEX_DIR / "chunk_meta.json"
+            self._vectorstore.save_local(str(self._index_dir))
+        meta_path = self._index_dir / "chunk_meta.json"
         meta_path.write_text(json.dumps(self._chunk_meta, indent=2), encoding="utf-8")
 
     def load(self):
         """Call this AFTER provider is configured to load persisted index."""
-        meta_path = INDEX_DIR / "chunk_meta.json"
+        meta_path = self._index_dir / "chunk_meta.json"
         if meta_path.exists():
             try:
                 self._chunk_meta = json.loads(meta_path.read_text(encoding="utf-8"))
             except Exception:
                 self._chunk_meta = {}
 
-        index_file = INDEX_DIR / "index.faiss"
+        index_file = self._index_dir / "index.faiss"
         if index_file.exists():
             try:
                 embeddings = _get_embeddings()
                 self._vectorstore = FAISS.load_local(
-                    str(INDEX_DIR), embeddings,
+                    str(self._index_dir), embeddings,
                     allow_dangerous_deserialization=True
                 )
             except Exception:

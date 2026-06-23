@@ -82,6 +82,54 @@ class SimpleRAGChain:
             "grounding": grounding,
         }
 
+    def stream_call(self, question: str):
+        """
+        Generator variant of __call__ for streaming chat responses.
+        Yields text chunks as they arrive from the LLM.
+        Also stores intent, sources, and grounding in self._last_stream_meta
+        for the caller to read after the generator is exhausted.
+        """
+        # Step 1: Classify
+        classified: ClassifiedQuery = classify(question)
+        log.info(f"[stream] Intent: {classified.intent} | Q: {question[:60]}")
+
+        # Step 2: Retrieve
+        docs = []
+        try:
+            results = self.kb.search(question, k=6)
+            for item in results:
+                if isinstance(item, tuple):
+                    docs.append(item[0])
+                elif hasattr(item, "page_content"):
+                    docs.append(item)
+        except Exception as e:
+            log.error(f"[stream] Retrieval error: {e}")
+
+        context = _format_docs(docs)
+        prompt = classified.prompt_template.format(context=context, question=question)
+
+        # Step 3: Stream from LLM, collecting full answer
+        full_answer = ""
+        for chunk in self.llm.stream(prompt):
+            full_answer += chunk
+            yield chunk
+
+        # Step 4: Post-stream processing (grounding, history)
+        grounding: GroundingResult = detect(full_answer, docs)
+        log.info(f"[stream] Grounding: {grounding.verdict} ({grounding.score:.0%})")
+
+        self.history.append({"role": "user", "content": question})
+        self.history.append({"role": "assistant", "content": full_answer})
+
+        # Store metadata for the caller to pick up
+        self._last_stream_meta = {
+            "answer": full_answer,
+            "source_documents": docs,
+            "intent": classified.intent,
+            "intent_icon": classified.icon,
+            "grounding": grounding,
+        }
+
 
 def build_rag_chain(retriever=None, kb=None, model=None, temporal_context="", **kwargs):
     return SimpleRAGChain(kb=kb, model=model, temporal_context=temporal_context)

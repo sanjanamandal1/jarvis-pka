@@ -46,6 +46,12 @@ def get_llm(model: str = None, temperature: float = 0, streaming: bool = False):
         )
 
 
+def stream_llm(prompt: str, model: str = None):
+    """Generator that yields text chunks for streaming responses."""
+    llm = get_llm(model=model)
+    yield from llm.stream(prompt)
+
+
 def get_embeddings():
     return _load_embeddings()
 
@@ -108,6 +114,45 @@ class _GeminiRestLLM:
             for msg in messages
         )
         return _Msg(self._call(prompt))
+
+    def stream(self, prompt: str):
+        """Generator that yields text chunks via Gemini's streaming endpoint."""
+        import requests
+        url = (
+            f"https://generativelanguage.googleapis.com/v1beta/models/"
+            f"{self.model_name}:streamGenerateContent"
+        )
+        payload = {
+            "contents": [{"parts": [{"text": prompt}]}],
+            "generationConfig": {"temperature": self.temperature},
+        }
+        with requests.post(
+            url, json=payload, params={"key": self.api_key, "alt": "sse"},
+            stream=True, timeout=90
+        ) as resp:
+            if not resp.ok:
+                raise Exception(f"Gemini stream error {resp.status_code}: {resp.text[:200]}")
+            import json as _json
+            for raw_line in resp.iter_lines():
+                if not raw_line:
+                    continue
+                line = raw_line.decode("utf-8") if isinstance(raw_line, bytes) else raw_line
+                if line.startswith("data:"):
+                    payload_str = line[5:].strip()
+                    if payload_str in ("", "[DONE]"):
+                        continue
+                    try:
+                        chunk = _json.loads(payload_str)
+                        text = (
+                            chunk.get("candidates", [{}])[0]
+                            .get("content", {})
+                            .get("parts", [{}])[0]
+                            .get("text", "")
+                        )
+                        if text:
+                            yield text
+                    except Exception:
+                        continue
 
     def __call__(self, messages, **kwargs) -> _Msg:
         return self.invoke(messages, **kwargs)

@@ -25,9 +25,12 @@ from src.quiz_engine import QuizGenerator
 from src.mindmap_generator import MindMapGenerator, render_mindmap_html
 from src.logger import get_logger
 from src.hallucination_detector import detect as detect_hallucination
+from src.workspace_manager import WorkspaceManager
+from src.analytics_engine import AnalyticsEngine
+from src.exporter import Exporter
 
 log = get_logger("app")
-log.info("JARVIS PKA starting up…")
+log.info("JARVIS PKA v3 starting up…")
 
 # ── Page config ───────────────────────────────────────────────────────────────
 st.set_page_config(
@@ -599,16 +602,20 @@ def init():
         "chat_history": [], "conversation": None, "kb": None,
         "version_mgr": None, "doc_summaries": {}, "active_doc_ids": [],
         "processing_log": [], "api_key_set": False,
-        "chat_mode": "standard",   # standard | multiquery | compare
+        "chat_mode": "standard",
         "hybrid_retriever": None,
         "citation_hl": None,
         "comparator": None,
+        "active_workspace": "default",
+        "doc_analytics": {},       # {filename: AnalyticsReport}
     }
     for k, v in d.items():
         if k not in st.session_state:
             st.session_state[k] = v
 
 init()
+
+_wm = WorkspaceManager()
 
 @st.cache_resource(show_spinner="⚙ Loading embeddings model…")
 def _cached_embeddings():
@@ -620,12 +627,16 @@ def _cached_embeddings():
 def get_kb():
     if st.session_state.kb is None:
         log.info("Initialising KnowledgeBase…")
-        st.session_state.kb = KnowledgeBase()
+        ws_path = _wm.get_workspace_path(st.session_state.active_workspace)
+        st.session_state.kb = KnowledgeBase(workspace_path=ws_path)
     return st.session_state.kb
 
 def get_vm():
     if st.session_state.version_mgr is None:
-        st.session_state.version_mgr = TemporalVersionManager()
+        ws_path = _wm.get_workspace_path(st.session_state.active_workspace)
+        st.session_state.version_mgr = TemporalVersionManager(
+            persist_dir=str(ws_path / "versions")
+        )
     return st.session_state.version_mgr
 
 
@@ -642,6 +653,49 @@ with st.sidebar:
             </div>
         </div>
     """, unsafe_allow_html=True)
+    st.divider()
+
+    # ── Workspace selector ───────────────────────────────────────────────
+    st.markdown('<div class="sid-title">📁 Workspaces</div>', unsafe_allow_html=True)
+    all_ws = _wm.list_workspaces()
+    ws_names = [w.name for w in all_ws]
+    ws_slugs = {w.name: w.slug for w in all_ws}
+    current_ws_name = next(
+        (w.name for w in all_ws if w.slug == st.session_state.active_workspace),
+        "Default"
+    )
+    selected_ws_name = st.selectbox(
+        "Active workspace", ws_names,
+        index=ws_names.index(current_ws_name) if current_ws_name in ws_names else 0,
+        label_visibility="collapsed",
+    )
+    selected_slug = ws_slugs.get(selected_ws_name, "default")
+    if selected_slug != st.session_state.active_workspace:
+        st.session_state.active_workspace = selected_slug
+        st.session_state.kb = None
+        st.session_state.version_mgr = None
+        st.session_state.conversation = None
+        st.session_state.chat_history = []
+        st.session_state.doc_summaries = {}
+        st.session_state.active_doc_ids = []
+        st.session_state.hybrid_retriever = None
+        st.session_state.doc_analytics = {}
+        st.rerun()
+
+    new_ws_name = st.text_input("New workspace name", placeholder="e.g. ML Research", label_visibility="collapsed")
+    if st.button("➕  CREATE WORKSPACE", use_container_width=True):
+        if new_ws_name.strip():
+            meta = _wm.create_workspace(new_ws_name.strip())
+            st.session_state.active_workspace = meta.slug
+            st.session_state.kb = None
+            st.session_state.version_mgr = None
+            st.session_state.conversation = None
+            st.session_state.chat_history = []
+            st.session_state.doc_summaries = {}
+            st.session_state.active_doc_ids = []
+            st.session_state.doc_analytics = {}
+            st.rerun()
+
     st.divider()
 
     # Provider + API Key
@@ -801,6 +855,14 @@ if process_btn:
                 if doc_id not in st.session_state.active_doc_ids:
                     st.session_state.active_doc_ids.append(doc_id)
 
+                # 📊 Compute analytics for this document
+                try:
+                    _ae = AnalyticsEngine()
+                    report = _ae.compute(chunks, uf.name)
+                    st.session_state.doc_analytics[uf.name] = report
+                except Exception as ae_err:
+                    log.error(f"Analytics error for {uf.name}: {ae_err}")
+
             except Exception as e:
                 log.append(f"✗ {uf.name}: {e}")
 
@@ -827,15 +889,17 @@ if process_btn:
 # ── Main UI ───────────────────────────────────────────────────────────────────
 
 # Header
-st.markdown("""
+st.markdown(f"""
 <div class="jarvis-header">
     <div class="jarvis-logo">J<span>.</span>A<span>.</span>R<span>.</span>V<span>.</span>I<span>.</span>S<span>.</span></div>
     <div class="jarvis-tagline">
         <span class="pulse-dot"></span>Just A Rather Very Intelligent System
         &nbsp;&nbsp;|&nbsp;&nbsp;
         <span class="pulse-dot cyan"></span>Personal Knowledge Assistant
+        &nbsp;&nbsp;|&nbsp;&nbsp;
+        <span style="color:#ffb700;font-size:0.65rem;letter-spacing:0.15em">📁 {selected_ws_name.upper()}</span>
     </div>
-    <div class="jarvis-version">MARK VII · BUILD 2025.02</div>
+    <div class="jarvis-version">MARK VIII · BUILD v3.0</div>
 </div>
 """, unsafe_allow_html=True)
 
@@ -894,13 +958,15 @@ if kb.is_empty():
 
 
 # ── Tabs ──────────────────────────────────────────────────────────────────────
-tab_chat, tab_compare, tab_docs, tab_sums, tab_quiz, tab_mindmap, tab_guide = st.tabs([
+tab_chat, tab_compare, tab_docs, tab_sums, tab_quiz, tab_mindmap, tab_analytics, tab_export, tab_guide = st.tabs([
     "◈ CHAT INTERFACE",
     "⚔ COMPARE DOCS",
     "📡 DOCUMENT REGISTRY",
     "📑 KNOWLEDGE MAP",
     "🎯 QUIZ MODE",
     "🧠 MIND MAP",
+    "📊 ANALYTICS",
+    "📤 EXPORT",
     "🚀 DEPLOY GUIDE",
 ])
 
@@ -1033,15 +1099,15 @@ with tab_chat:
             st.session_state.chat_history.append({"role": "user", "content": prompt})
             st.rerun()
 
-    # Generate response
+    # Generate response (streaming for Standard RAG, non-streaming for Multi-Query)
     history = st.session_state.chat_history
     if history and history[-1]["role"] == "user" and st.session_state.conversation:
         last_q = history[-1]["content"]
-        with st.spinner("◈ JARVIS processing…"):
-            try:
-                msg_data = {"role": "assistant", "content": "", "sources": [], "citations": [], "queries": []}
+        msg_data = {"role": "assistant", "content": "", "sources": [], "citations": [], "queries": []}
 
-                if rag_mode == "Multi-Query Fusion":
+        if rag_mode == "Multi-Query Fusion":
+            with st.spinner("◈ JARVIS processing…"):
+                try:
                     doc_ids = [d.doc_id for d in all_docs]
                     retriever_obj = kb.get_retriever(k=top_k, doc_ids=doc_ids)
                     fuser = MultiQueryFuser(
@@ -1057,35 +1123,45 @@ with tab_chat:
                         cited = st.session_state.citation_hl.highlight(answer, src_docs)
                         msg_data["cited_answer"] = cited.answer_with_markers
                         msg_data["citations"] = cited.citations
-                else:
-                    result = st.session_state.conversation({"question": last_q})
-                    answer = result["answer"]
-                    src_docs = result.get("source_documents", [])
-                    intent = result.get("intent", "factual")
-                    intent_icon = result.get("intent_icon", "◈")
-                    msg_data["content"] = answer
-                    msg_data["sources"] = format_sources(src_docs)
-                    msg_data["intent"] = intent
-                    msg_data["intent_icon"] = intent_icon
-                    grounding = result.get("grounding")
-                    if grounding:
-                        msg_data["grounding_verdict"] = grounding.verdict
-                        msg_data["grounding_color"] = grounding.verdict_color
-                        msg_data["grounding_icon"] = grounding.verdict_icon
-                        msg_data["grounding_score"] = grounding.score
-                        msg_data["ungrounded_claims"] = grounding.ungrounded_claims
-                    if use_citations and st.session_state.citation_hl:
-                        cited = st.session_state.citation_hl.highlight(answer, src_docs)
-                        msg_data["cited_answer"] = cited.answer_with_markers
-                        msg_data["citations"] = cited.citations
+                except Exception as e:
+                    msg_data["content"] = f"⚠️ System error: {e}"
+            st.session_state.chat_history.append(msg_data)
+            st.rerun()
 
-                st.session_state.chat_history.append(msg_data)
+        else:
+            # 🔄 Streaming response via st.write_stream
+            st.markdown(
+                '<div class="msg-assistant"><div class="msg-label asst">◈ JARVIS · STREAMING</div>',
+                unsafe_allow_html=True,
+            )
+            try:
+                streamed_text = st.write_stream(
+                    st.session_state.conversation.stream_call(last_q)
+                )
+                st.markdown("</div>", unsafe_allow_html=True)
+                # Collect metadata stored by stream_call
+                meta = getattr(st.session_state.conversation, "_last_stream_meta", {})
+                src_docs = meta.get("source_documents", [])
+                msg_data["content"] = streamed_text or meta.get("answer", "")
+                msg_data["sources"] = format_sources(src_docs)
+                msg_data["intent"] = meta.get("intent", "factual")
+                msg_data["intent_icon"] = meta.get("intent_icon", "◈")
+                grounding = meta.get("grounding")
+                if grounding:
+                    msg_data["grounding_verdict"] = grounding.verdict
+                    msg_data["grounding_color"] = grounding.verdict_color
+                    msg_data["grounding_icon"] = grounding.verdict_icon
+                    msg_data["grounding_score"] = grounding.score
+                    msg_data["ungrounded_claims"] = grounding.ungrounded_claims
+                if use_citations and st.session_state.citation_hl:
+                    cited = st.session_state.citation_hl.highlight(msg_data["content"], src_docs)
+                    msg_data["cited_answer"] = cited.answer_with_markers
+                    msg_data["citations"] = cited.citations
             except Exception as e:
-                st.session_state.chat_history.append({
-                    "role": "assistant", "content": f"⚠️ System error: {e}",
-                    "sources": [], "citations": [], "queries": [],
-                })
-        st.rerun()
+                st.markdown("</div>", unsafe_allow_html=True)
+                msg_data["content"] = f"⚠️ Streaming error: {e}"
+            st.session_state.chat_history.append(msg_data)
+            st.rerun()
 
 
 # ── TAB: COMPARE ──────────────────────────────────────────────────────────────
@@ -1284,7 +1360,6 @@ with tab_quiz:
                 st.session_state["current_quiz"] = None
                 st.session_state["quiz_submitted"] = False
                 st.rerun()
-
 
 # ── TAB: MIND MAP ─────────────────────────────────────────────────────────────
 with tab_mindmap:
